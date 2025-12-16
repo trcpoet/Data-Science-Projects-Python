@@ -5,64 +5,93 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 
-st.title('NBA Player Stats Explorer')
+st.title("NBA Player Stats Explorer")
 
-st.markdown("""
+st.markdown(
+    """
 This app performs simple webscraping of NBA player stats data!
-* **Python libraries:** base64, pandas, streamlit
-* **Data source:** [Basketball-reference.com](https://www.basketball-reference.com/).
-""")
 
-st.sidebar.header('User Input Features')
-selected_year = st.sidebar.selectbox('Year', list(reversed(range(1950,2020))))
+- **Python libraries:** base64, pandas, streamlit
+- **Data source:** [Basketball-reference.com](https://www.basketball-reference.com/)
+"""
+)
 
-# Web scraping of NBA player stats
-@st.cache
-def load_data(year):
-    url = "https://www.basketball-reference.com/leagues/NBA_" + str(year) + "_per_game.html"
-    html = pd.read_html(url, header = 0)
-    df = html[0]
-    raw = df.drop(df[df.Age == 'Age'].index) # Deletes repeating headers in content
-    raw = raw.fillna(0)
-    playerstats = raw.drop(['Rk'], axis=1)
-    return playerstats
+st.sidebar.header("User Input Features")
+selected_year = st.sidebar.selectbox("Year", list(reversed(range(1950, 2021))))
+
+@st.cache_data
+def load_data(year: int) -> pd.DataFrame:
+    url = f"https://www.basketball-reference.com/leagues/NBA_{year}_per_game.html"
+    df = pd.read_html(url, header=0)[0]
+
+    # Flatten multi-index columns if they exist
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(-1)
+
+    # Strip whitespace in column names
+    df.columns = df.columns.astype(str).str.strip()
+
+    # Remove repeated header rows
+    if "Rk" in df.columns:
+        df = df[df["Rk"] != "Rk"]
+
+    df = df.fillna(0)
+
+    # Drop rank column
+    if "Rk" in df.columns:
+        df = df.drop(columns=["Rk"])
+
+    return df
+
 playerstats = load_data(selected_year)
 
+# Debug: show columns so you can confirm Team column name
+st.write("Columns:", list(playerstats.columns))
+
+# ---- Team column detection (robust) ----
+if "Tm" in playerstats.columns:
+    team_col = "Tm"
+elif "Team" in playerstats.columns:
+    team_col = "Team"
+else:
+    st.error("Could not find team column. Check the printed Columns list above.")
+    st.stop()
+
 # Sidebar - Team selection
-sorted_unique_team = sorted(playerstats.Tm.unique())
-selected_team = st.sidebar.multiselect('Team', sorted_unique_team, sorted_unique_team)
+sorted_unique_team = sorted(playerstats[team_col].astype(str).unique())
+selected_team = st.sidebar.multiselect("Team", sorted_unique_team, sorted_unique_team)
 
 # Sidebar - Position selection
-unique_pos = ['C','PF','SF','PG','SG']
-selected_pos = st.sidebar.multiselect('Position', unique_pos, unique_pos)
+unique_pos = ["C", "PF", "SF", "PG", "SG"]
+selected_pos = st.sidebar.multiselect("Position", unique_pos, unique_pos)
 
 # Filtering data
-df_selected_team = playerstats[(playerstats.Tm.isin(selected_team)) & (playerstats.Pos.isin(selected_pos))]
+df_selected = playerstats[
+    (playerstats[team_col].isin(selected_team)) & (playerstats["Pos"].isin(selected_pos))
+]
 
-st.header('Display Player Stats of Selected Team(s)')
-st.write('Data Dimension: ' + str(df_selected_team.shape[0]) + ' rows and ' + str(df_selected_team.shape[1]) + ' columns.')
-st.dataframe(df_selected_team)
+st.header("Display Player Stats of Selected Team(s)")
+st.write(
+    f"Data Dimension: {df_selected.shape[0]} rows and {df_selected.shape[1]} columns."
+)
+st.dataframe(df_selected)
 
-# Download NBA player stats data
-# https://discuss.streamlit.io/t/how-to-download-file-in-streamlit/1806
-def filedownload(df):
+def filedownload(df: pd.DataFrame) -> str:
     csv = df.to_csv(index=False)
-    b64 = base64.b64encode(csv.encode()).decode()  # strings <-> bytes conversions
-    href = f'<a href="data:file/csv;base64,{b64}" download="playerstats.csv">Download CSV File</a>'
-    return href
+    b64 = base64.b64encode(csv.encode()).decode()
+    return f'<a href="data:file/csv;base64,{b64}" download="playerstats.csv">Download CSV File</a>'
 
-st.markdown(filedownload(df_selected_team), unsafe_allow_html=True)
+st.markdown(filedownload(df_selected), unsafe_allow_html=True)
 
 # Heatmap
-if st.button('Intercorrelation Heatmap'):
-    st.header('Intercorrelation Matrix Heatmap')
-    df_selected_team.to_csv('output.csv',index=False)
-    df = pd.read_csv('output.csv')
+if st.button("Intercorrelation Heatmap"):
+    st.header("Intercorrelation Matrix Heatmap")
 
-    corr = df.corr()
-    mask = np.zeros_like(corr)
-    mask[np.triu_indices_from(mask)] = True
-    with sns.axes_style("white"):
-        f, ax = plt.subplots(figsize=(7, 5))
-        ax = sns.heatmap(corr, mask=mask, vmax=1, square=True)
-    st.pyplot()
+    # Correlation on numeric columns only
+    corr = df_selected.select_dtypes(include=[np.number]).corr()
+
+    mask = np.triu(np.ones_like(corr, dtype=bool))
+    fig, ax = plt.subplots(figsize=(9, 6))
+    sns.heatmap(corr, mask=mask, vmax=1, square=True, ax=ax)
+
+    st.pyplot(fig)
