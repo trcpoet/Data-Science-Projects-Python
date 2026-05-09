@@ -32,14 +32,6 @@ cd Data-Science-Projects-Python
 # Install dependencies
 pip install pandas numpy matplotlib seaborn yfinance jupyter
 
-# Launch Jupyter
-jupyter notebook
-Related Projects
-
-BLACKJACK — OOP card game in Python
-WAR — OOP card game simulation in Python
-blackjack-api — Blackjack converted into a FastAPI REST API with PostgreSQL
-
 Author
 Tahsin R. Chowdhury
 BSc Information Systems, University of Texas at Arlington
